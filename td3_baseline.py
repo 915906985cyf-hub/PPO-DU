@@ -65,8 +65,25 @@ alpha0 = 1e-4
 
 # PPO / PGA parameters
 ACTION_DIM = 2 * M + 3 * L + 2
-PGA_ITERS = 10
-PGA_RHO = 2e-4
+PGA_RHO_LIST = [
+    1.4673569240e-04,
+    1.4736338926e-04,
+    1.4798615302e-04,
+    1.4860446390e-04,
+    1.4921954426e-04,
+    1.4983756409e-04,
+    1.5047723718e-04,
+    1.5115986753e-04,
+    1.5189628175e-04,
+    1.5271228040e-04,
+    1.5335444186e-04,
+    1.5391442867e-04,
+    1.5429698396e-04,
+    1.5378707030e-04,
+    1.5301638632e-04,
+]
+PGA_ITERS = len(PGA_RHO_LIST)
+PGA_RHO = PGA_RHO_LIST[0]
 
 # State scaling
 POS_SCALE = 100.0
@@ -371,18 +388,39 @@ def compute_pga_grad(w, h_eff_list, A0, Pl_list, tau_list):
     return grad
 
 
+def _resolve_pga_rho_sequence(pga_iters, rho):
+    """Return one PGA step size for each unfolded PGA layer."""
+    pga_iters = int(pga_iters)
+
+    if isinstance(rho, (list, tuple, np.ndarray)):
+        rho_seq = [float(x) for x in rho]
+    else:
+        rho = float(rho)
+        # 默认情况下使用预训练得到的逐层 rho；如果命令行显式传入其他 rho，则退化为固定步长 PGA。
+        if abs(rho - float(PGA_RHO)) < 1e-15:
+            rho_seq = [float(x) for x in PGA_RHO_LIST]
+        else:
+            rho_seq = [rho] * pga_iters
+
+    if len(rho_seq) < pga_iters:
+        rho_seq = rho_seq + [rho_seq[-1]] * (pga_iters - len(rho_seq))
+
+    return rho_seq[:pga_iters]
+
+
 def traditional_pga_inner(h_eff_list, A0, Pl_list, tau_list, pga_iters=PGA_ITERS, rho=PGA_RHO):
     w = torch.ones(Nt, 1, dtype=torch.cfloat, device=device)
     w = proj_power(w)
     obj_history = []
+    rho_seq = _resolve_pga_rho_sequence(pga_iters, rho)
 
-    for _ in range(pga_iters):
+    for k in range(pga_iters):
         dummy_f = torch.zeros(L, device=device)
         comps = compute_components(w, h_eff_list, A0, Pl_list, tau_list, dummy_f)
         obj_history.append(comps['reward'].item())
 
         grad = compute_pga_grad(w, h_eff_list, A0, Pl_list, tau_list)
-        w = w + rho * grad
+        w = w + rho_seq[k] * grad
         w = proj_power(w)
 
     dummy_f = torch.zeros(L, device=device)
@@ -950,8 +988,8 @@ if __name__ == '__main__':
     # Training schedule
     parser.add_argument('--max_episodes', type=int, default=5000)
     parser.add_argument('--max_train_steps', type=int, default=None)
-    parser.add_argument('--evaluate_freq', type=int, default=200)   # 少评估，明显省时间
-    parser.add_argument('--eval_times', type=int, default=1)        # 原PPO是3，这里改为1以提速
+    parser.add_argument('--evaluate_freq', type=int, default=100)   # 少评估，明显省时间
+    parser.add_argument('--eval_times', type=int, default=3)        # 原PPO是3，这里改为1以提速
     parser.add_argument('--print_freq', type=int, default=20)       # 减少大量episode打印
     parser.add_argument('--save_freq', type=int, default=10)
 
