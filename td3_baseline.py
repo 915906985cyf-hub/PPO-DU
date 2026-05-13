@@ -752,8 +752,9 @@ class TD3Agent:
         self.critic_target = Critic(args.state_dim, args.action_dim, args.hidden_width).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=args.lr_a)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=args.lr_c)
+        # 学习率改为更保守的 Adam 配置，避免 actor 在早期把策略快速推离初始较优区域。
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=args.lr_a, eps=1e-5)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=args.lr_c, eps=1e-5)
 
     @torch.no_grad()
     def select_action(self, state, noise_std=0.0):
@@ -939,6 +940,8 @@ def main(args, env_name, number, seed):
                 f'Buffer={replay_buffer.size} | '
                 f'CriticLoss={critic_loss if critic_loss is not None else 0:.3e} | '
                 f'ActorLoss={actor_loss if actor_loss is not None else 0:.3e} | '
+                f'LRa={agent.actor_optimizer.param_groups[0]["lr"]:.1e} | '
+                f'LRc={agent.critic_optimizer.param_groups[0]["lr"]:.1e} | '
                 f'Time={elapsed:.1f}s'
             )
 
@@ -997,17 +1000,20 @@ if __name__ == '__main__':
     parser.add_argument('--buffer_size', type=int, default=200000)
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--hidden_width', type=int, default=256)
-    parser.add_argument('--lr_a', type=float, default=1e-4)
-    parser.add_argument('--lr_c', type=float, default=1e-4)
+    # 稳定版学习率：actor 学得更慢，critic 略快一些，防止前期策略崩掉。
+    parser.add_argument('--lr_a', type=float, default=3e-5)
+    parser.add_argument('--lr_c', type=float, default=5e-5)
     parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--tau', type=float, default=0.005)
-    parser.add_argument('--policy_noise', type=float, default=0.20)
-    parser.add_argument('--noise_clip', type=float, default=0.50)
+    # 目标网络软更新也放慢一点；TD3目标策略噪声减小，曲线会更稳。
+    parser.add_argument('--tau', type=float, default=0.002)
+    parser.add_argument('--policy_noise', type=float, default=0.10)
+    parser.add_argument('--noise_clip', type=float, default=0.25)
     parser.add_argument('--policy_freq', type=int, default=2)
-    parser.add_argument('--expl_noise', type=float, default=0.15)
+    parser.add_argument('--expl_noise', type=float, default=0.08)
     parser.add_argument('--start_timesteps', type=int, default=1000)
     parser.add_argument('--update_iters', type=int, default=1)
-    parser.add_argument('--reward_scale', type=float, default=1000.0)
+    # 原始 reward 约 1e4~1e5，critic 训练时建议缩放到更小量级。
+    parser.add_argument('--reward_scale', type=float, default=10000.0)
 
     # Normalization and inner PGA
     parser.add_argument('--use_state_norm', type=bool, default=True)
