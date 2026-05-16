@@ -37,7 +37,7 @@ B = 1.0
 delta_t = 0.5
 c_l = 1e3
 F_B = 5e3
-P_user_max = 0.5
+P_user_max =1
 F_loc_max = 1e3
 
 # Sensing
